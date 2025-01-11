@@ -1,15 +1,15 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
 module HqLite where
 
 import Data.List (isInfixOf)
-import Data.Text (Text)
 import qualified Data.Text as T
-import HqLite.Paging
+import HqLite.Paging (Pager (..))
+import HqLite.Table
 import System.Exit (exitSuccess)
 import System.IO
-
--- our tepmorary hardcoded table will be of form
--- id, username, email
--- int, varchar(32), varchar(255)
+import Data.IORef
+import Control.Monad.Reader
 
 data Command
     = MetaCommand MetaCommandType
@@ -59,13 +59,66 @@ parseInsert cmd = do
 evalMetaCommand :: MetaCommandType -> IO ()
 evalMetaCommand Exit = putStrLn "Bye!" >> exitSuccess
 
+-- Environment containing all our stateful components
+data DbEnv = DbEnv 
+    { dbTable :: IORef Table
+    , dbPager :: Pager
+    }
+
+-- Our monad stack
+newtype DbM a = DbM { runDbM :: ReaderT DbEnv IO a }
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader DbEnv)
+
+-- Helper functions to access state
+getTable :: DbM Table
+getTable = do
+    ref <- asks dbTable
+    liftIO $ readIORef ref
+
+modifyTable :: (Table -> Table) -> DbM ()
+modifyTable f = do
+    ref <- asks dbTable
+    liftIO $ modifyIORef' ref f
+
+-- Command handlers
+handleCommand :: Command -> DbM ()
+handleCommand (SqlCommand cmd) = do
+    table <- getTable
+    let newTable = executeSQL cmd table
+    modifyTable (const newTable)
+
+handleCommand (MetaCommand cmd) = 
+    liftIO $ evalMetaCommand cmd
+
+executeSQL :: SqlCommandType -> Table -> Table
+executeSQL cmd table =
+    case cmd of
+        Insert row -> case insertRow row table of
+            Just newTable -> newTable
+            Nothing -> table
+        Select _ -> table 
+
+-- Main REPL
+replLoop :: DbM ()
+replLoop = do
+    liftIO printPrompt
+    command <- liftIO getLine
+    case parseCommand command of
+        Left err -> do
+            liftIO $ putStrLn err
+            replLoop
+        Right cmd -> do
+            handleCommand cmd
+            liftIO $ putStrLn "command executed!"
+            liftIO $ print cmd
+            replLoop
+
+-- Initialize and run
 main :: IO ()
 main = do
-    printPrompt
-    command <- getLine
-    case parseCommand command of
-        Left err -> putStrLn err
-        Right (MetaCommand cmd) -> evalMetaCommand cmd
-        Right (SqlCommand cmd) -> do
-            print cmd
-    main
+    handle <- openFile "./tmp/test.db" ReadWriteMode
+    let pager = Pager 4096 handle
+    tableRef <- newIORef emptyTable
+    let env = DbEnv tableRef pager
+    runReaderT (runDbM replLoop) env
+    putStrLn "REPL exited."

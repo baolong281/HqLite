@@ -1,3 +1,5 @@
-module HqLite.Paging where
+module HqLite.Paging(Pager(..), Page(..))
+
+where
 
 import HqLite.Paging.Page
