@@ -5,14 +5,12 @@ module HqLite where
 
 import Data.List (isInfixOf)
 import qualified Data.Text as T
-import HqLite.Paging (Pager (..))
 import HqLite.Table
 import System.Exit (exitSuccess)
 import System.IO
 import Data.IORef
 import Control.Monad.Reader
 import Data.Maybe
-import HqLite.Constants (pageSize)
 
 data Command
     = MetaCommand MetaCommandType
@@ -64,9 +62,7 @@ evalMetaCommand Exit = putStrLn "Bye!" >> exitSuccess
 
 -- Environment containing all our stateful components
 data DbEnv = DbEnv
-    { dbTable :: IORef Table
-    , dbPager :: Pager
-    }
+    { dbTable :: IORef Table }
 
 -- Our monad stack
 newtype DbM a = DbM { runDbM :: ReaderT DbEnv IO a }
@@ -94,15 +90,11 @@ handleCommand (SqlCommand cmd) = do
     Select _ -> do
       let selectedRows = selectFunc table
       liftIO $ print selectedRows  -- Print the selected rows
-
 handleCommand (MetaCommand cmd) =
     liftIO $ evalMetaCommand cmd
 
 selectFunc :: Table -> [Row]
-selectFunc Table{..} = 
-    case tPages of
-        [page] -> selectPage page
-        _ -> []
+selectFunc Table{..} = foldMap selectPage tPages
 
 -- Execute SQL command (only modifies the table for Insert)
 executeSQL :: SqlCommandType -> Table -> Table
@@ -127,9 +119,9 @@ replLoop = do
 -- Initialize and run
 main :: IO ()
 main = do
-    handle <- openFile "./tmp/test.db" ReadWriteMode
-    let pager = Pager 4096 handle
+    -- handle <- openFile "./tmp/test.db" ReadWriteMode
+    -- let pager = Pager 4096 handle
     tableRef <- newIORef emptyTable
-    let env = DbEnv tableRef pager
+    let env = DbEnv tableRef
     runReaderT (runDbM replLoop) env
     putStrLn "REPL exited."

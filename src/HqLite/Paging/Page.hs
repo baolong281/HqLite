@@ -6,20 +6,10 @@
 module HqLite.Paging.Page where
 
 import qualified Data.ByteString.Lazy as BS
+import Data.Int (Int64)
 import Data.Word (Word64)
 import GHC.IO.Handle
-import Data.Int (Int64)
 import qualified HqLite.Constants as Constants
-
--- Pages are 4096 raw bytes
-data Page = Page 
-    {
-        pData :: BS.ByteString,
-        pWritten :: Int64
-    }
-
-emptyPage :: Page
-emptyPage = Page {pData = BS.replicate Constants.pageSize 0x0, pWritten = 0}
 
 type PageId = Word64
 
@@ -27,6 +17,16 @@ data Pager = Pager
     { pPageSize :: !Word64
     , pFileHandle :: !Handle
     }
+
+-- Pages are 4096 raw bytes
+-- idk how to enforce this
+data Page = Page
+    { pData :: BS.ByteString
+    , pWritten :: Int64
+    }
+
+emptyPage :: Page
+emptyPage = Page{pData = BS.replicate Constants.pageSize 0x0, pWritten = 0}
 
 getOffset :: Pager -> PageId -> Word64
 getOffset Pager{..} pageId = pageId * pPageSize
@@ -45,4 +45,3 @@ readPage pager@Pager{..} pageId = do
     hSeek pFileHandle AbsoluteSeek (fromIntegral pageOffset)
     rawData <- BS.hGet pFileHandle (fromIntegral pPageSize)
     pure $ Page rawData 0
-

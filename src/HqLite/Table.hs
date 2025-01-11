@@ -13,7 +13,6 @@ import Data.Binary (Binary(..), encode, decode)
 import GHC.Generics (Generic)
 
 -- our tepmorary hardcoded table will be of form
--- our tepmorary hardcoded table will be of form
 -- id, username, email
 -- int, varchar(32), varchar(255)
 data Row = Row
@@ -21,7 +20,7 @@ data Row = Row
     , rowUsername :: Text
     , rowEmail :: Text
     }
-    deriving (Show, Generic)
+    deriving (Show, Generic, Eq)
 
 rowSize :: Int
 rowSize = fromIntegral (BS.length (encode ( Row 123 (T.pack "test") (T.pack "testing"))))
@@ -88,9 +87,10 @@ selectPage page =
         Prelude.map decode rawBytes
 
 readPage :: Page -> Int -> [BS.ByteString]
-readPage page@Page{..} size =
-    let n = fromIntegral pWritten `div` size
-    in Prelude.map (\start -> readIndSize page (start * size) size) [0..n]
+readPage page@Page{..} size = 
+    Prelude.map (\start -> readIndSize page (start * size) size) [0..n-1]
+    where
+        n = fromIntegral pWritten `div` size
 
 readIndSize :: Page -> Int -> Int -> BS.ByteString
 readIndSize (Page bs _ ) i n = BS.take (fromIntegral n) (BS.drop (fromIntegral i) bs)
