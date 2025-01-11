@@ -1,15 +1,15 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module HqLite.Table where
 
-import Control.Monad.State
-import Data.Text (Text)
+import Data.Text as T
 import Data.ByteString.Lazy as BS
 import HqLite.Paging (Page(..))
 import Data.Maybe (isJust)
 import HqLite.Constants
 import HqLite.Paging.Page (emptyPage)
-import Data.Binary
+import Data.Binary (Binary(..), encode, decode)
 import GHC.Generics (Generic)
 
 -- our tepmorary hardcoded table will be of form
@@ -23,9 +23,27 @@ data Row = Row
     }
     deriving (Show, Generic)
 
-instance Binary Row
+rowSize :: Int
+rowSize = fromIntegral (BS.length (encode ( Row 123 (T.pack "test") (T.pack "testing"))))
 
-type Database = State Table
+-- Pad or truncate a Text field to the fixed length
+fixTextLength :: Int -> Text -> Text
+fixTextLength len txt = T.take len (T.justifyLeft len ' ' txt)
+
+-- Trim padding from a Text field
+trimText :: Text -> Text
+trimText = T.strip
+
+-- Custom Binary instance for Row
+instance Binary Row where
+  put (Row user_id username email) = do
+    put user_id
+    put (fixTextLength 32 username)
+    put (fixTextLength 255 email)
+  get = do
+    user_id <- get
+    username <- get
+    Row user_id (trimText username) . trimText <$> get
 
 data Table = Table
     {
@@ -39,7 +57,7 @@ insertRow :: Row -> Table -> Maybe Table
 insertRow row = insertTable (encode row)
 
 insertTable :: BS.ByteString -> Table -> Maybe Table
-insertTable newData table = 
+insertTable newData table =
     tryWriteToPages newData (tPages table) >>= \updatedPages ->
     Just $ table { tPages = updatedPages }
 
@@ -61,5 +79,20 @@ writeToFixedSize newData (Page currentData written)=
                  updatedData = before <> newData <> after
             in Just $ Page updatedData end
         else Nothing
+
+selectPage :: Page -> [Row]
+selectPage page =
+    let
+        rawBytes = readPage page rowSize
+    in
+        Prelude.map decode rawBytes
+
+readPage :: Page -> Int -> [BS.ByteString]
+readPage page@Page{..} size =
+    let n = fromIntegral pWritten `div` size
+    in Prelude.map (\start -> readIndSize page (start * size) size) [0..n]
+
+readIndSize :: Page -> Int -> Int -> BS.ByteString
+readIndSize (Page bs _ ) i n = BS.take (fromIntegral n) (BS.drop (fromIntegral i) bs)
 
 

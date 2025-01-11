@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module HqLite where
 
@@ -10,6 +11,8 @@ import System.Exit (exitSuccess)
 import System.IO
 import Data.IORef
 import Control.Monad.Reader
+import Data.Maybe
+import HqLite.Constants (pageSize)
 
 data Command
     = MetaCommand MetaCommandType
@@ -60,7 +63,7 @@ evalMetaCommand :: MetaCommandType -> IO ()
 evalMetaCommand Exit = putStrLn "Bye!" >> exitSuccess
 
 -- Environment containing all our stateful components
-data DbEnv = DbEnv 
+data DbEnv = DbEnv
     { dbTable :: IORef Table
     , dbPager :: Pager
     }
@@ -80,23 +83,31 @@ modifyTable f = do
     ref <- asks dbTable
     liftIO $ modifyIORef' ref f
 
--- Command handlers
+-- Command handler
 handleCommand :: Command -> DbM ()
 handleCommand (SqlCommand cmd) = do
-    table <- getTable
-    let newTable = executeSQL cmd table
-    modifyTable (const newTable)
+  table <- getTable
+  case cmd of
+    Insert _ -> do
+      let newTable = executeSQL cmd table
+      modifyTable (const newTable)
+    Select _ -> do
+      let selectedRows = selectFunc table
+      liftIO $ print selectedRows  -- Print the selected rows
 
-handleCommand (MetaCommand cmd) = 
+handleCommand (MetaCommand cmd) =
     liftIO $ evalMetaCommand cmd
 
+selectFunc :: Table -> [Row]
+selectFunc Table{..} = 
+    case tPages of
+        [page] -> selectPage page
+        _ -> []
+
+-- Execute SQL command (only modifies the table for Insert)
 executeSQL :: SqlCommandType -> Table -> Table
-executeSQL cmd table =
-    case cmd of
-        Insert row -> case insertRow row table of
-            Just newTable -> newTable
-            Nothing -> table
-        Select _ -> table 
+executeSQL (Insert row) table = fromMaybe table (insertRow row table)
+executeSQL _ table = table  -- No-op for Select
 
 -- Main REPL
 replLoop :: DbM ()
