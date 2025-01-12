@@ -12,20 +12,21 @@ import qualified HqLite.Constants as Constants
 import HqLite.Paging.Types
 import HqLite.Paging.Cache
 import Control.Monad.State
+import System.IO (hFileSize)
 
 type PagerM a = StateT Pager IO a
 
-emptyPage :: Page
-emptyPage = Page{pData = BS.replicate Constants.pageSize 0x0, pWritten = 0}
-
-emptyPager :: Handle -> Pager
-emptyPager handle = Pager (fromIntegral Constants.pageSize) handle emptyCache
+newPagerPlusSize :: Handle -> IO (Pager, Word64)
+newPagerPlusSize handle = do
+    let pageSize = fromIntegral Constants.pageSize
+    fileSize <- hFileSize handle
+    pure (Pager pageSize handle emptyCache, fromIntegral fileSize)
 
 getOffset :: Pager -> PageId -> Word64
 getOffset Pager{..} pageId = pageId * pPageSize
 
 writePage :: PageId -> Page -> PagerM ()
-writePage pageId (Page page _) = do
+writePage pageId (Page page) = do
     pager@Pager{..} <- get
     let pageOffset = getOffset pager pageId
     liftIO $ do
@@ -33,15 +34,14 @@ writePage pageId (Page page _) = do
             BS.hPut pFileHandle page
             pure ()
     -- Update cache
-    put pager{pCache = insertPage pageId (Page page 0) pCache}
+    put pager{pCache = insertPage pageId (Page page) pCache}
 
-readPage :: PageId -> PagerM Page
-readPage pageId = do
-    pager@Pager{..} <- get
+readPage :: Pager -> PageId -> IO Page
+readPage pager@Pager{..} pageId = do
     case lookupPage pageId pCache of
         Just page -> pure page
         Nothing -> do
             let pageOffset = getOffset pager pageId
-            liftIO $ hSeek pFileHandle AbsoluteSeek (fromIntegral pageOffset)
+            hSeek pFileHandle AbsoluteSeek (fromIntegral pageOffset)
             rawData <- liftIO $ BS.hGet pFileHandle (fromIntegral pPageSize)
-            pure $ Page rawData 0
+            pure $ Page rawData

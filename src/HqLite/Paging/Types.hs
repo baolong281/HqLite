@@ -2,7 +2,6 @@ module HqLite.Paging.Types where
 import Data.Binary
 import qualified Data.HashMap.Strict as HM
 import qualified Data.ByteString.Lazy as BS
-import Data.Int
 import GHC.IO.Handle
 
 -- * Pager and Page
@@ -16,9 +15,8 @@ data Pager = Pager
 
 -- Pages are 4096 raw bytes
 -- idk how to enforce this
-data Page = Page
+newtype Page = Page
     { pData :: BS.ByteString
-    , pWritten :: Int64
     }
 
 -- * Cache 

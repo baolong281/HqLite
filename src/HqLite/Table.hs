@@ -1,16 +1,18 @@
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE RecordWildCards #-}
 
 module HqLite.Table where
 
 import Data.Text as T
 import Data.ByteString.Lazy as BS
-import HqLite.Paging (Page(..))
-import Data.Maybe (isJust)
+import HqLite.Paging (Page(..), Pager)
 import HqLite.Constants
-import HqLite.Paging.Page (emptyPage)
+import HqLite.Paging.Page (newPagerPlusSize, readPage, writePage)
 import Data.Binary (Binary(..), encode, decode)
-import GHC.Generics (Generic)
+import GHC.IO.IOMode (IOMode(ReadWriteMode))
+import System.IO (openFile)
+import Data.Word (Word64)
+import Control.Monad.State (StateT(runStateT))
+import Data.Int (Int64)
 
 -- our tepmorary hardcoded table will be of form
 -- id, username, email
@@ -20,9 +22,9 @@ data Row = Row
     , rowUsername :: Text
     , rowEmail :: Text
     }
-    deriving (Show, Generic, Eq)
+    deriving (Show, Eq)
 
-rowSize :: Int
+rowSize :: Int64
 rowSize = fromIntegral (BS.length (encode ( Row 123 (T.pack "test") (T.pack "testing"))))
 
 -- Pad or truncate a Text field to the fixed length
@@ -46,53 +48,62 @@ instance Binary Row where
 
 data Table = Table
     {
-        tPages :: [Page]
+        tPager :: Pager,
+        tBytesWritten :: Word64
     }
 
-emptyTable :: Table
-emptyTable = Table [emptyPage]
+createTable :: FilePath -> IO Table
+createTable path = do
+    handle <- openFile path ReadWriteMode
+    (pager, fileSize) <- newPagerPlusSize handle
+    pure Table{tPager = pager, tBytesWritten = fileSize}
 
-insertRow :: Row -> Table -> Maybe Table
-insertRow row = insertTable (encode row)
+insertRow :: Row -> Table -> IO Table
+insertRow row table@Table{..} = do
+    let newData = encode row
+        pageNum = tBytesWritten `div` fromIntegral pageSize
+        offset = tBytesWritten `mod` fromIntegral pageSize
 
-insertTable :: BS.ByteString -> Table -> Maybe Table
-insertTable newData table =
-    tryWriteToPages newData (tPages table) >>= \updatedPages ->
-    Just $ table { tPages = updatedPages }
+    page <- readPage tPager (fromIntegral pageNum)
 
-tryWriteToPages :: BS.ByteString -> [Page] -> Maybe [Page]
-tryWriteToPages newData pages =
-    case Prelude.break (isJust . writeToFixedSize newData ) pages of
-        (before, p:after) ->
-            writeToFixedSize newData p >>= \updated ->
-            Just (before ++ [updated] ++ after)
-        _ -> Nothing
+    let updatedPage = alterPageOffset newData offset page
 
-writeToFixedSize :: BS.ByteString -> Page -> Maybe Page
-writeToFixedSize newData (Page currentData written)=
+    case updatedPage of
+        Nothing -> pure table
+        Just updatedPage' -> do
+            (_, newPager) <- runStateT (writePage pageNum updatedPage') tPager
+            pure table{tPager = newPager, tBytesWritten = tBytesWritten + fromIntegral rowSize}
+
+
+alterPageOffset :: BS.ByteString -> Word64 -> Page -> Maybe Page
+alterPageOffset newData offset (Page currentData) =
     let
-        end = BS.length newData + written
+        end = BS.length newData + fromIntegral offset
     in if end <= pageSize
-        then let (before, _) = BS.splitAt written currentData
+        then let (before, _) = BS.splitAt (fromIntegral offset) currentData
                  (_, after) = BS.splitAt end currentData
                  updatedData = before <> newData <> after
-            in Just $ Page updatedData end
+            in Just $ Page updatedData
         else Nothing
 
-selectPage :: Page -> [Row]
-selectPage page =
-    let
-        rawBytes = readPage page rowSize
-    in
-        Prelude.map decode rawBytes
+tableSelect :: Table -> IO [Row]
+tableSelect Table{..} = 
+    let totalPages = tBytesWritten `div` fromIntegral pageSize
+        -- finalPageBytesLeft = tBytesWritten `mod` fromIntegral pageSize
+        n = pageSize `div` fromIntegral rowSize
+    in do 
+        rows <- mapM (\pageId -> do
+                page <- readPage tPager (fromIntegral pageId)
+                let pageRows = getPageData page n
+                mapM (return . decode) pageRows
+            ) [0..totalPages-1]
+        pure $ Prelude.concat rows
 
-readPage :: Page -> Int -> [BS.ByteString]
-readPage page@Page{..} size = 
-    Prelude.map (\start -> readIndSize page (start * size) size) [0..n-1]
-    where
-        n = fromIntegral pWritten `div` size
+getPageData :: Page -> Int64 -> [BS.ByteString]
+getPageData page n =
+    Prelude.map (\start -> readIndSize page (start * rowSize) rowSize) [0..n-1]
 
-readIndSize :: Page -> Int -> Int -> BS.ByteString
-readIndSize (Page bs _ ) i n = BS.take (fromIntegral n) (BS.drop (fromIntegral i) bs)
+readIndSize :: Page -> Int64 -> Int64 -> BS.ByteString
+readIndSize (Page bs) offseet nBytes = BS.take (fromIntegral nBytes) (BS.drop (fromIntegral offseet) bs)
 
 
