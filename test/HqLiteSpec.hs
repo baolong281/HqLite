@@ -5,6 +5,7 @@ import Test.Hspec
 import HqLite
 import HqLite.Table
 import qualified Data.Text as T
+import HqLite.Commands
 
 runCommands :: [String] -> Table
 runCommands = foldl executeCommand emptyTable
