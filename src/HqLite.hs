@@ -1,14 +1,13 @@
-{-# LANGUAGE RecordWildCards #-}
-
 module HqLite where
 
+import Control.Monad.Reader
+import Control.Monad.State
+import HqLite.Commands
 import HqLite.Table
 import System.Exit (exitSuccess)
 import System.IO
-import Control.Monad.Reader
-import HqLite.Commands
-import Control.Monad.State
-
+import HqLite.Cursor
+import Control.Monad.Loops (unfoldrM)
 
 printPrompt :: IO ()
 printPrompt = putStr "db> " >> hFlush stdout
@@ -16,7 +15,6 @@ printPrompt = putStr "db> " >> hFlush stdout
 parseCommand :: String -> Either String Command
 parseCommand ('.' : cmd) = parseMetaCommand cmd
 parseCommand cmd = parseSqlCommand cmd
-
 
 evalMetaCommand :: MetaCommandType -> IO ()
 evalMetaCommand Exit = putStrLn "Bye!" >> exitSuccess
@@ -26,24 +24,41 @@ type DbM a = StateT Table IO a
 -- Command handler
 handleCommand :: Command -> DbM ()
 handleCommand (SqlCommand cmd) = do
-  table <- get
-  case cmd of
-    Insert _ -> do
-      table' <- liftIO $ executeSQL cmd table
-      put table'
-    Select _ -> do
-      selectedRows <- liftIO $ selectFunc table
-      liftIO $ print selectedRows  -- Print the selected rows
+    table <- get
+    case cmd of
+        Insert _ -> do
+            table' <- liftIO $ executeSQL cmd table
+            put table'
+        Select _ -> do
+            selectedRows <- liftIO $ selectFunc table
+            liftIO $ printTable selectedRows
 handleCommand (MetaCommand cmd) =
     liftIO $ evalMetaCommand cmd
 
+printTable :: [Row] -> IO ()
+printTable rows = do
+    mapM_ print rows
+
 selectFunc :: Table -> IO [Row]
-selectFunc  = tableSelect
+selectFunc table = do
+    let
+        cursor = newCursorStart table
+    unfoldrM fetchRow cursor
+    where
+        fetchRow :: Cursor -> IO (Maybe (Row, Cursor))
+        fetchRow cursor = do
+            row <- getCurrentRow cursor
+            print row
+            case row of
+                Just row' -> do
+                    let nextCursor = execState next cursor
+                    return (Just (row', nextCursor))
+                Nothing -> pure Nothing
 
 -- Execute SQL command (only modifies the table for Insert)
 executeSQL :: SqlCommandType -> Table -> IO Table
 executeSQL (Insert row) table = insertRow row table
-executeSQL _ table = pure table  -- No-op for Select
+executeSQL _ table = pure table -- No-op for Select
 
 -- Main REPL
 replLoop :: DbM ()
