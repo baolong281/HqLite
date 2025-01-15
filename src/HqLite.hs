@@ -4,6 +4,7 @@ import Control.Monad.Loops (unfoldrM)
 import Control.Monad.Reader
 import Control.Monad.State
 import HqLite.Commands
+import HqLite.Constants
 import HqLite.Cursor
 import HqLite.Table
 import System.Exit (exitSuccess)
@@ -19,18 +20,14 @@ parseCommand cmd = parseSqlCommand cmd
 evalMetaCommand :: MetaCommandType -> IO ()
 evalMetaCommand Exit = putStrLn "Bye!" >> exitSuccess
 
-type DbM a = StateT Table IO a
-
 -- Command handler
-handleCommand :: Command -> DbM ()
-handleCommand (SqlCommand cmd) = do
-    table <- get
+handleCommand :: Command -> CursorM ()
+handleCommand (SqlCommand cmd) =
     case cmd of
-        Insert _ -> do
-            table' <- liftIO $ executeSQL cmd table
-            put table'
+        Insert row -> insertRow 1 row
         Select _ -> do
-            selectedRows <- liftIO $ selectFunc table
+            cursor <- get
+            selectedRows <- liftIO $ selectFunc cursor
             liftIO $ printTable selectedRows
 handleCommand (MetaCommand cmd) =
     liftIO $ evalMetaCommand cmd
@@ -39,39 +36,32 @@ printTable :: [Row] -> IO ()
 printTable rows = do
     mapM_ print rows
 
-selectFunc :: Table -> IO [Row]
-selectFunc table = do
+selectFunc :: Cursor -> IO [Row]
+selectFunc cursor = do
     let
-        cursor = newCursorStart table
-    unfoldrM fetchRow cursor
+        table = cTable cursor
+        cursorStart = newCursorStart table
+    unfoldrM fetchRow cursorStart
   where
     fetchRow :: Cursor -> IO (Maybe (Row, Cursor))
-    fetchRow cursor = do
-        row <- getCurrentRow cursor
+    fetchRow currCursor = do
+        row <- getCurrentRow currCursor
         case row of
             Just row' -> do
-                let nextCursor = execState next cursor
+                nextCursor <- execStateT next currCursor
                 return (Just (row', nextCursor))
             Nothing -> pure Nothing
 
--- Execute SQL command (only modifies the table for Insert)
-executeSQL :: SqlCommandType -> Table -> IO Table
-executeSQL (Insert row) table = insertRow row table
-executeSQL _ table = pure table -- No-op for Select
-
--- Main REPL
-replLoop :: DbM ()
+replLoop :: CursorM ()
 replLoop = do
     liftIO printPrompt
-    command <- liftIO getLine
-    case parseCommand command of
+    command <- parseCommand <$> liftIO getLine
+    case command of
         Left err -> do
             liftIO $ putStrLn err
             replLoop
         Right cmd -> do
             handleCommand cmd
-            liftIO $ putStrLn "command executed!"
-            liftIO $ print cmd
             replLoop
 
 -- Initialize and run
@@ -80,5 +70,5 @@ main = do
     -- handle <- openFile "./tmp/test.db" ReadWriteMode
     -- let pager = Pager 4096 handle
     table <- createTable "./tmp/test.db"
-    _ <- execStateT replLoop table
+    _ <- execStateT replLoop $ newCursorStart table
     putStrLn "REPL exited."

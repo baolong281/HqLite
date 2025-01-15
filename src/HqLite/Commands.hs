@@ -1,8 +1,8 @@
 module HqLite.Commands where
 
-import HqLite.Table
+import Data.List (isInfixOf)
 import qualified Data.Text as T
-import Data.List(isInfixOf)
+import HqLite.Constants
 
 data Command
     = MetaCommand MetaCommandType

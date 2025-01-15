@@ -1,8 +1,10 @@
 module HqLite.Paging.Types where
+
 import Data.Binary
-import qualified Data.HashMap.Strict as HM
 import qualified Data.ByteString.Lazy as BS
+import qualified Data.HashMap.Strict as HM
 import GHC.IO.Handle
+import HqLite.Constants
 
 -- * Pager and Page
 type PageId = Word64
@@ -11,6 +13,7 @@ data Pager = Pager
     { pPageSize :: !Word64
     , pFileHandle :: !Handle
     , pCache :: Cache
+    , pNumPages :: Word32
     }
 
 -- Pages are 4096 raw bytes
@@ -18,9 +21,14 @@ data Pager = Pager
 newtype Page = Page
     { pData :: BS.ByteString
     }
+    deriving (Show)
 
--- * Cache 
-data Cache = Cache
-    { 
-        cPages :: HM.HashMap PageId Page
+createPage :: BS.ByteString -> Page
+createPage rawData
+    | BS.length rawData /= fromIntegral pageSize = error "Page size mismatch"
+    | otherwise = Page rawData
+
+-- * Cache
+newtype Cache = Cache
+    { cPages :: HM.HashMap PageId Page
     }

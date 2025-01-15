@@ -5,22 +5,34 @@
 
 module HqLite.Paging.Page where
 
+import Control.Monad.State
+import Data.Binary (encode)
 import qualified Data.ByteString.Lazy as BS
 import Data.Word (Word64)
-import GHC.IO.Handle ( hSeek, SeekMode(AbsoluteSeek), Handle )
+import GHC.IO.Handle (Handle, SeekMode (AbsoluteSeek), hSeek)
+import HqLite.Btree.Types
 import qualified HqLite.Constants as Constants
-import HqLite.Paging.Types
 import HqLite.Paging.Cache
-import Control.Monad.State
+import HqLite.Paging.Types
 import System.IO (hFileSize, hFlush)
 
 type PagerM a = StateT Pager IO a
 
-newPagerPlusSize :: Handle -> IO (Pager, Word64)
-newPagerPlusSize handle = do
+newPager :: Handle -> IO Pager
+newPager handle = do
     let pageSize = fromIntegral Constants.pageSize
+    numPages <- fromIntegral . (`div` pageSize) . fromIntegral <$> hFileSize handle
     fileSize <- hFileSize handle
-    pure (Pager pageSize handle emptyCache, fromIntegral fileSize)
+    putStrLn $ "numPages: " ++ show numPages
+    putStrLn $ "file size: " ++ show fileSize
+    let emptyPager = Pager pageSize handle emptyCache numPages
+    if numPages == 0
+        then initializeEmptyPager emptyPager
+        else pure emptyPager
+  where
+    initializeEmptyPager pager = do
+        let rootPage = Page $ encode initializeLeaf
+        snd <$> runStateT (writePage 0 rootPage) pager
 
 getOffset :: Pager -> PageId -> Word64
 getOffset Pager{..} pageId = pageId * pPageSize
@@ -30,9 +42,10 @@ writePage pageId (Page page) = do
     pager@Pager{..} <- get
     let pageOffset = getOffset pager pageId
     liftIO $ do
-            hSeek pFileHandle AbsoluteSeek (fromIntegral pageOffset)
-            BS.hPut pFileHandle page >> hFlush pFileHandle
-            pure ()
+        hSeek pFileHandle AbsoluteSeek (fromIntegral pageOffset)
+        BS.hPut pFileHandle page >> hFlush pFileHandle
+        print $ BS.length page
+        pure ()
     -- Update cache
     put pager{pCache = insertPage pageId (Page page) pCache}
 
