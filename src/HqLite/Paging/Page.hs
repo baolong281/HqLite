@@ -12,7 +12,7 @@ import qualified HqLite.Constants as Constants
 import HqLite.Paging.Types
 import HqLite.Paging.Cache
 import Control.Monad.State
-import System.IO (hFileSize)
+import System.IO (hFileSize, hFlush)
 
 type PagerM a = StateT Pager IO a
 
@@ -31,7 +31,7 @@ writePage pageId (Page page) = do
     let pageOffset = getOffset pager pageId
     liftIO $ do
             hSeek pFileHandle AbsoluteSeek (fromIntegral pageOffset)
-            BS.hPut pFileHandle page
+            BS.hPut pFileHandle page >> hFlush pFileHandle
             pure ()
     -- Update cache
     put pager{pCache = insertPage pageId (Page page) pCache}

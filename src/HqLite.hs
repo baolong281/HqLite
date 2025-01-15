@@ -1,13 +1,13 @@
 module HqLite where
 
+import Control.Monad.Loops (unfoldrM)
 import Control.Monad.Reader
 import Control.Monad.State
 import HqLite.Commands
+import HqLite.Cursor
 import HqLite.Table
 import System.Exit (exitSuccess)
 import System.IO
-import HqLite.Cursor
-import Control.Monad.Loops (unfoldrM)
 
 printPrompt :: IO ()
 printPrompt = putStr "db> " >> hFlush stdout
@@ -44,16 +44,15 @@ selectFunc table = do
     let
         cursor = newCursorStart table
     unfoldrM fetchRow cursor
-    where
-        fetchRow :: Cursor -> IO (Maybe (Row, Cursor))
-        fetchRow cursor = do
-            row <- getCurrentRow cursor
-            print row
-            case row of
-                Just row' -> do
-                    let nextCursor = execState next cursor
-                    return (Just (row', nextCursor))
-                Nothing -> pure Nothing
+  where
+    fetchRow :: Cursor -> IO (Maybe (Row, Cursor))
+    fetchRow cursor = do
+        row <- getCurrentRow cursor
+        case row of
+            Just row' -> do
+                let nextCursor = execState next cursor
+                return (Just (row', nextCursor))
+            Nothing -> pure Nothing
 
 -- Execute SQL command (only modifies the table for Insert)
 executeSQL :: SqlCommandType -> Table -> IO Table

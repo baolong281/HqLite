@@ -29,6 +29,7 @@ library
         HqLite.Constants
         HqLite.Commands
         HqLite.Cursor
+        HqLite.Btree
     -- other-modules:
     -- other-extensions:
     build-depends:    
