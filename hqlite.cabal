@@ -78,9 +78,10 @@ test-suite hqlite-test
         , base ^>=4.17.2.1
         , hspec-discover
         , hqlite
-        , base
+        , temporary
+        , silently
         , hspec
-        , text
         , mtl
+        , directory
     build-tool-depends:
       hspec-discover:hspec-discover

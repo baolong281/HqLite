@@ -16,7 +16,11 @@ data Row = Row
     , rowUsername :: Text
     , rowEmail :: Text
     }
-    deriving (Show, Eq)
+    deriving (Eq)
+
+instance Show Row where
+    show (Row rowId username email) = 
+        "(" ++ show rowId ++ ", " ++ T.unpack username ++ ", " ++ T.unpack email ++ ")"
 
 rowSize :: Int64
 rowSize = fromIntegral (BS.length (encode (Row 123 (T.pack "test") (T.pack "testing"))))

@@ -73,8 +73,6 @@ insertRow row = do
     when (lNumCells leaf >= leafMaxCells) $ do
         error "split not work"
 
-    liftIO $ print cCellNum
-
     updateLeafWithRow (fromIntegral $ rowId row) row leaf
 
 getLeafNode :: Cursor -> IO LeafData

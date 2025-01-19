@@ -29,7 +29,8 @@ handleCommand (SqlCommand cmd) =
             res <- tableInsert row
             case res of 
                 Left err -> liftIO $ putStrLn $ "Error: " ++ err
-                Right _ -> return ()
+                Right _ -> do
+                    liftIO $ putStrLn "Row inserted!"
         Select _ -> do
             table <- get
             let cursor = newCursorStart table
@@ -67,8 +68,12 @@ replLoop = do
             liftIO $ putStrLn err
             replLoop
         Right cmd -> do
-            handleCommand cmd
-            replLoop
+            case cmd of
+                MetaCommand _ -> do
+                     liftIO $ putStrLn "Bye!" 
+                _ -> do
+                    handleCommand cmd
+                    replLoop
 
 -- Initialize and run
 main :: IO ()

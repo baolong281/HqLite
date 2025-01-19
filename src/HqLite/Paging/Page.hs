@@ -22,9 +22,6 @@ newPager :: Handle -> IO Pager
 newPager handle = do
     let pageSize = fromIntegral Constants.pageSize
     numPages <- fromIntegral . (`div` pageSize) . fromIntegral <$> hFileSize handle
-    fileSize <- hFileSize handle
-    putStrLn $ "numPages: " ++ show numPages
-    putStrLn $ "file size: " ++ show fileSize
     let emptyPager = Pager pageSize handle emptyCache numPages
     if numPages == 0
         then initializeEmptyPager emptyPager
