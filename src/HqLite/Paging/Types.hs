@@ -14,7 +14,7 @@ data Pager = Pager
     , pFileHandle :: !Handle
     , pCache :: Cache
     , pNumPages :: Word32
-    }
+    }deriving(Show)
 
 -- Pages are 4096 raw bytes
 -- idk how to enforce this
@@ -31,4 +31,4 @@ createPage rawData
 -- * Cache
 newtype Cache = Cache
     { cPages :: HM.HashMap PageId Page
-    }
+    }deriving(Show)

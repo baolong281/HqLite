@@ -1,17 +1,14 @@
-{-# LANGUAGE RecordWildCards #-}
-
 module HqLite.Cursor where
 
 import Control.Monad.State
 import Data.Binary (encode)
-import qualified Data.ByteString.Lazy as BS
 import Data.Word (Word32)
 import HqLite.Btree
 import HqLite.Btree.Types
 import HqLite.Constants
 import HqLite.Paging.Page
 import HqLite.Paging.Types
-import HqLite.Table
+import HqLite.Table.Types
 
 type CursorM a = StateT Cursor IO a
 
@@ -20,7 +17,7 @@ data Cursor = Cursor
     { cPageNum :: PageId
     , cCellNum :: Word32
     , cTable :: Table
-    }
+    } deriving(Show)
 
 newCursorEnd :: Table -> IO Cursor
 newCursorEnd table@Table{..} = do
@@ -55,6 +52,7 @@ getCurrentRow Cursor{..} = do
         Nothing -> error "do this later"
         Just (LeafNode LeafData{..}) -> do
             -- keep it 1-indexed
+            -- if our index is too large return nothing
             if cCellNum - 1 >= lNumCells
                 then pure Nothing
                 else pure $ Just (snd (lCells !! (fromIntegral cCellNum - 1)))
@@ -65,21 +63,19 @@ insertAt i x xs =
     let (front, back) = splitAt i xs
      in front ++ (x : back)
 
-insertRow :: Key -> Row -> CursorM ()
-insertRow key row = do
+insertRow :: Row -> CursorM ()
+insertRow row = do
     cursor@Cursor{..} <- get
     when (cCellNum >= leafMaxCells) $
         error "split not work"
-
-    liftIO $ print leafMaxCells
 
     leaf <- liftIO $ getLeafNode cursor
     when (lNumCells leaf >= leafMaxCells) $ do
         error "split not work"
 
-    liftIO $ print (lNumCells leaf)
+    liftIO $ print cCellNum
 
-    updateLeafWithRow key row leaf
+    updateLeafWithRow (fromIntegral $ rowId row) row leaf
 
 getLeafNode :: Cursor -> IO LeafData
 getLeafNode Cursor{..} = do
@@ -92,7 +88,8 @@ getLeafNode Cursor{..} = do
 updateLeafWithRow :: Key -> Row -> LeafData -> CursorM ()
 updateLeafWithRow key row LeafData{..} = do
     Cursor{..} <- get
-    let newCells = insertAt (fromIntegral cCellNum) (key, row) lCells
+    -- cell nums indexed by one, we need to substract one i think
+    let newCells = insertAt (fromIntegral cCellNum - 1) (key, row) lCells
         newLeaf = createPage $ encode LeafData{lCells = newCells, lNumCells = fromIntegral (length newCells), ..}
     updatedPager <- liftIO $ snd <$> runStateT (writePage cPageNum newLeaf) (tPager cTable)
     modify $ \c -> c{cTable = cTable{tPager = updatedPager}}

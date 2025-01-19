@@ -44,7 +44,6 @@ writePage pageId (Page page) = do
     liftIO $ do
         hSeek pFileHandle AbsoluteSeek (fromIntegral pageOffset)
         BS.hPut pFileHandle page >> hFlush pFileHandle
-        print $ BS.length page
         pure ()
     -- Update cache
     put pager{pCache = insertPage pageId (Page page) pCache}

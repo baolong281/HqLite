@@ -9,6 +9,7 @@ import HqLite.Cursor
 import HqLite.Table
 import System.Exit (exitSuccess)
 import System.IO
+import HqLite.Table.Types (TableM)
 
 printPrompt :: IO ()
 printPrompt = putStr "db> " >> hFlush stdout
@@ -21,12 +22,17 @@ evalMetaCommand :: MetaCommandType -> IO ()
 evalMetaCommand Exit = putStrLn "Bye!" >> exitSuccess
 
 -- Command handler
-handleCommand :: Command -> CursorM ()
+handleCommand :: Command -> TableM ()
 handleCommand (SqlCommand cmd) =
     case cmd of
-        Insert row -> insertRow 1 row
+        Insert row -> do
+            res <- tableInsert row
+            case res of 
+                Left err -> liftIO $ putStrLn $ "Error: " ++ err
+                Right _ -> return ()
         Select _ -> do
-            cursor <- get
+            table <- get
+            let cursor = newCursorStart table
             selectedRows <- liftIO $ selectFunc cursor
             liftIO $ printTable selectedRows
 handleCommand (MetaCommand cmd) =
@@ -52,7 +58,7 @@ selectFunc cursor = do
                 return (Just (row', nextCursor))
             Nothing -> pure Nothing
 
-replLoop :: CursorM ()
+replLoop :: TableM ()
 replLoop = do
     liftIO printPrompt
     command <- parseCommand <$> liftIO getLine
@@ -70,5 +76,5 @@ main = do
     -- handle <- openFile "./tmp/test.db" ReadWriteMode
     -- let pager = Pager 4096 handle
     table <- createTable "./tmp/test.db"
-    _ <- execStateT replLoop $ newCursorStart table
+    _ <- execStateT replLoop table
     putStrLn "REPL exited."
