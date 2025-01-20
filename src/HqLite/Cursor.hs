@@ -9,6 +9,7 @@ import HqLite.Constants
 import HqLite.Paging.Page
 import HqLite.Paging.Types
 import HqLite.Table.Types
+import qualified Data.Vector as V
 
 type CursorM a = StateT Cursor IO a
 
@@ -55,13 +56,13 @@ getCurrentRow Cursor{..} = do
             -- if our index is too large return nothing
             if cCellNum - 1 >= lNumCells
                 then pure Nothing
-                else pure $ Just (snd (lCells !! (fromIntegral cCellNum - 1)))
+                else pure $ Just (snd (lCells V.! (fromIntegral cCellNum - 1)))
         _ -> error "wtf"
 
-insertAt :: Int -> a -> [a] -> [a]
-insertAt i x xs =
-    let (front, back) = splitAt i xs
-     in front ++ (x : back)
+insertAt :: Int -> a -> V.Vector a -> V.Vector a
+insertAt i x xs = V.take i xs V.++ V.singleton x V.++ V.drop i xs
+    
+
 
 insertRow :: Row -> CursorM ()
 insertRow row = do

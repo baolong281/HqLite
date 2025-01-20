@@ -60,3 +60,14 @@ spec = do
                     [ "db> Invalid SQL command: INVALID COMMAND"
                     , "db> Bye!"
                     ]
+
+        it "handles duplicates" $ do
+            withTempDirectory "./" "tmp" $ \dir -> do
+                let dbPath = dir ++ "/test.db"
+                table <- createTable dbPath
+                output <- runReplWithInput dir "insert 1 user1 hello@email.com\ninsert 1 diff hello@gmail.com\n.exit\n" table
+                output `shouldBe` unlines
+                    [ "db> Row inserted!"
+                    , "db> Error: Cannot insert row. Row with existing key already found!"
+                    , "db> Bye!"
+                    ]

@@ -5,6 +5,7 @@ module HqLite.Btree.Types where
 import Control.Monad.Cont
 import Data.Binary
 import Data.Binary.Put
+import qualified Data.Vector as V
 import HqLite.Constants (Row (..), pageSize, rowSize)
 
 data TreeNode = LeafNode LeafData | InternalNode InternalData deriving (Show)
@@ -23,7 +24,7 @@ data LeafData = LeafData
     , lIsRoot :: Bool
     , lParentPointer :: Word32
     , lNumCells :: Word32
-    , lCells :: [(Key, Row)]
+    , lCells :: V.Vector (Key, Row)
     }
     deriving (Show)
 
@@ -51,7 +52,7 @@ instance Binary LeafData where
             key <- get
             row <- get
             return (key, row)
-        return (LeafData nodeType isRoot parentPointer numCells cells)
+        return (LeafData nodeType isRoot parentPointer numCells (V.fromList cells))
 
 initializeLeaf :: LeafData
-initializeLeaf = LeafData False True 0 0 []
+initializeLeaf = LeafData False True 0 0 V.empty

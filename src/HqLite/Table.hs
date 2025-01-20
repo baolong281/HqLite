@@ -89,7 +89,7 @@ tableFind table key = do
 leafFind :: Table -> LeafData -> Key -> Cursor
 leafFind table leaf key =
     let
-        keyVec = V.map fst (V.fromList (lCells leaf))
+        keyVec = V.map fst $ lCells leaf
         -- the cursor is 1-indexed so we need to add one
         index = binarySearch keyVec key + 1
     in Cursor (tRootPage table) (fromIntegral index) table
