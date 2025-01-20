@@ -7,7 +7,7 @@ import GHC.IO.Handle
 import HqLite.Constants
 
 -- * Pager and Page
-type PageId = Word64
+type PageId = Word32
 
 data Pager = Pager
     { pPageSize :: !Word64

@@ -7,18 +7,23 @@ import HqLite.Constants
 data Command
     = MetaCommand MetaCommandType
     | SqlCommand SqlCommandType
-    deriving (Show)
+    deriving (Show, Eq)
 
-data MetaCommandType = Exit deriving (Show)
+data MetaCommandType 
+    = Exit 
+    | Tree
+    deriving (Show, Eq)
+
 data SqlCommandType
     = Insert Row
     | Select String
-    deriving (Show)
+    deriving (Show, Eq)
 
 parseMetaCommand :: String -> Either String Command
 parseMetaCommand cmd =
     MetaCommand <$> case cmd of
         "exit" -> Right Exit
+        "tree" -> Right Tree
         _ -> Left $ "Invalid meta command: " ++ cmd
 
 parseSqlCommand :: String -> Either String Command

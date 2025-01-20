@@ -1,7 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 
 module HqLiteSpec where
 
+import Text.RawString.QQ (r)
 import Test.Hspec
 import System.IO.Silently (capture_)
 import System.IO.Temp (withTempDirectory)
@@ -44,7 +46,15 @@ spec = do
             withTempDirectory "./" "tmp" $ \dir -> do
                 let dbPath = dir ++ "/test.db"
                 table <- createTable dbPath
-                output <- runReplWithInput dir "insert 1 user1 user1@example.com\nselect\n.exit\n" table
+                let cmd = unlines
+                          [
+                            "insert 1 user1 user1@example.com",
+                            "select",
+                            ".exit"
+                          ]
+
+                putStrLn cmd
+                output <- runReplWithInput dir cmd table
                 output `shouldBe` unlines
                     [ "db> Row inserted!"
                     , "db> (1, user1, user1@example.com)"
@@ -70,4 +80,91 @@ spec = do
                     [ "db> Row inserted!"
                     , "db> Error: Cannot insert row. Row with existing key already found!"
                     , "db> Bye!"
+                    ]
+
+        it "inserts in sorted order" $ do
+            withTempDirectory "./" "tmp" $ \dir -> do
+                let dbPath = dir ++ "/test.db"
+                table <- createTable dbPath
+                let cmd = unlines
+                          [
+                            "insert 1 a b",
+                            "insert 6 c d",
+                            "insert 2 e f",
+                            "insert 5 g h",
+                            "insert 3 i j",
+                            "select",
+                            ".exit"
+                          ]
+                output <- runReplWithInput dir cmd table
+                output `shouldBe` unlines 
+                    [
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> (1, a, b)",
+                        "(2, e, f)",
+                        "(3, i, j)",
+                        "(5, g, h)",
+                        "(6, c, d)",
+                        "db> Bye!"
+                    ]
+
+        it "inserts and splits root" $ do
+            withTempDirectory "./" "tmp" $ \dir -> do
+                let dbPath = dir ++ "/test.db"
+                table <- createTable dbPath
+                let cmd = unlines
+                          [
+                            "insert 1 a b",
+                            "insert 2 a b",
+                            "insert 3 a b",
+                            "insert 4 a b",
+                            "insert 5 a b",
+                            "insert 6 a b",
+                            "insert 7 a b",
+                            "insert 8 a b",
+                            "insert 9 a b",
+                            "insert 10 a b",
+                            "insert 11 a b",
+                            "insert 12 a b",
+                            "insert 13 a b",
+                            ".tree",
+                            ".exit"
+                          ]
+                output <- runReplWithInput dir cmd table
+                output `shouldBe` unlines 
+                    [
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> - internal (size 1)",
+                        "  - leaf (size 7)",
+                        "    - 7",
+                        "    - 8",
+                        "    - 9",
+                        "    - 10",
+                        "    - 11",
+                        "    - 12",
+                        "    - 13",
+                        "  - leaf (size 6)",
+                        "    - 1",
+                        "    - 2",
+                        "    - 3",
+                        "    - 4",
+                        "    - 5",
+                        "    - 6",
+                        "db> Bye!"
                     ]

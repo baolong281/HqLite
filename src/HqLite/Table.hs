@@ -17,11 +17,10 @@ import HqLite.Constants
 import HqLite.Paging (Page (..))
 import HqLite.Paging.Page
 import System.IO (openFile)
-import HqLite.Btree.Types (TreeNode(..), LeafData (lCells), Key)
-import HqLite.Cursor(Cursor(..), insertRow, getCurrentRow)
+import HqLite.Btree.Types 
+import HqLite.Btree
 import HqLite.Table.Types
 import Data.Vector as V
-import HqLite.Btree (readNode)
 
 createTable :: FilePath -> IO Table
 createTable path = do
@@ -73,11 +72,10 @@ tableInsert row = do
 
 tableLeaf :: Table -> IO (Either String LeafData)
 tableLeaf Table{..} = do
-    maybeNode <- readNode <$> readPage tPager tRootPage
-    case maybeNode of
-        Just (LeafNode leaf) -> pure $ Right leaf
-        Nothing -> pure $ Left "Page not found"
-        Just _ -> pure $ Left "Expected leaf node"
+    node <- readNode <$> readPage tPager tRootPage
+    case node of
+        LeafNode leaf -> pure $ Right leaf
+        _ -> pure $ Left "Expected leaf node"
 
 tableFind :: Table -> Key -> IO (Either String Cursor)
 tableFind table key = do
