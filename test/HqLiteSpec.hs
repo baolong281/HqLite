@@ -168,3 +168,66 @@ spec = do
                         "    - 6",
                         "db> Bye!"
                     ]
+
+        it "insert with split nodes works" $ do
+            withTempDirectory "./" "tmp" $ \dir -> do
+                let dbPath = dir ++ "/test.db"
+                table <- createTable dbPath
+                let cmd = unlines
+                          [
+                            "insert 2 a b",
+                            "insert 4 a b",
+                            "insert 6 a b",
+                            "insert 8 a b",
+                            "insert 10 a b",
+                            "insert 12 a b",
+                            "insert 14 a b",
+                            "insert 16 a b",
+                            "insert 18 a b",
+                            "insert 20 a b",
+                            "insert 22 a b",
+                            "insert 24 a b",
+                            "insert 26 a b",
+                            "insert 28 a b", -- insert right node
+                            "insert 1 a b", -- insert left node
+                            ".tree",
+                            ".exit"
+                          ]
+                output <- runReplWithInput dir cmd table
+                output `shouldBe` unlines 
+                    [
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> Row inserted!",
+                        "db> - internal (size 1)",
+                        "  - leaf (size 8)",
+                        "    - 14",
+                        "    - 16",
+                        "    - 18",
+                        "    - 20",
+                        "    - 22",
+                        "    - 24",
+                        "    - 26",
+                        "    - 28",
+                        "  - leaf (size 7)",
+                        "    - 1",
+                        "    - 2",
+                        "    - 4",
+                        "    - 6",
+                        "    - 8",
+                        "    - 10",
+                        "    - 12",
+                        "db> Bye!"
+                    ]

@@ -35,7 +35,6 @@ getNumPages handle = do
     let pageSize = fromIntegral Constants.pageSize
     (`div` pageSize) . fromIntegral <$> hFileSize handle
 
-
 getOffset :: Pager -> PageId -> Word64
 getOffset Pager{..} pageId = fromIntegral pageId * pPageSize
 
@@ -51,6 +50,8 @@ writePage pageId (Page page) = do
     numPages <- liftIO $ getNumPages pFileHandle
     put pager{pCache = insertPage pageId (Page page) pCache, pNumPages = numPages}
 
+-- this should probably update the cache
+-- do laterc
 readPage :: Pager -> PageId -> IO Page
 readPage pager@Pager{..} pageId = do
     case lookupPage pageId pCache of

@@ -3,25 +3,18 @@
 module HqLite.Table where
 
 import Control.Monad.State.Lazy
-import Data.ByteString.Lazy as BS (
-    ByteString,
-    drop,
-    length,
-    splitAt,
-    take,
- )
-import Data.Int (Int64)
-import Data.Word (Word64)
 import GHC.IO.IOMode (IOMode (ReadWriteMode))
 import HqLite.Constants
-import HqLite.Paging (Page (..))
 import HqLite.Paging.Page
 import System.IO (openFile)
 import HqLite.Btree.Types 
 import HqLite.Btree
 import HqLite.Table.Types
 import Data.Vector as V
+import HqLite.Paging
+import HqLite.Paging.Types (PageId)
 
+-- create table from filepath
 createTable :: FilePath -> IO Table
 createTable path = do
     handle <- openFile path ReadWriteMode
@@ -29,32 +22,12 @@ createTable path = do
     let pageId = 0
     pure Table{tPager = pager, tRootPage = pageId}
 
-alterPageOffset :: BS.ByteString -> Word64 -> Page -> Maybe Page
-alterPageOffset newData offset (Page currentData) =
-    if end <= pageSize
-        then
-            let (before, _) = BS.splitAt (fromIntegral offset) currentData
-                (_, after) = BS.splitAt end currentData
-                updatedData = before <> newData <> after
-             in Just $ Page updatedData
-        else Nothing
-  where
-    end = BS.length newData + fromIntegral offset
-
-getPageData :: Page -> Int64 -> [BS.ByteString]
-getPageData page n =
-    Prelude.map (\start -> readIndSize page (start * rowSize) rowSize) [0 .. n - 1]
-
-readIndSize :: Page -> Int64 -> Int64 -> BS.ByteString
-readIndSize (Page bs) offseet nBytes = BS.take (fromIntegral nBytes) (BS.drop (fromIntegral offseet) bs)
-
+-- insert row into table
 tableInsert :: Row -> TableM (Either String ())
 tableInsert row = do
     table <- get
-    maybeCursor <- liftIO $ tableFind table (fromIntegral $ rowId row)
-    case  maybeCursor of
-        Left err -> pure $ Left err
-        Right cursor -> handleCursor cursor
+    cursor <- liftIO $ tableFind table (fromIntegral $ rowId row)
+    handleCursor cursor
     where
         handleCursor cursor = do
             currentRow <- liftIO $ getCurrentRow cursor
@@ -77,21 +50,37 @@ tableLeaf Table{..} = do
         LeafNode leaf -> pure $ Right leaf
         _ -> pure $ Left "Expected leaf node"
 
-tableFind :: Table -> Key -> IO (Either String Cursor)
-tableFind table key = do
-    result <- tableLeaf table
-    case result of
-        Left err -> pure $ Left err
-        Right leaf -> pure $ Right $ leafFind table leaf key
+tableFind :: Table -> Key -> IO Cursor
+tableFind table@Table{..} key = do
+    node <- readNode <$> readPage tPager tRootPage
+    go tPager node tRootPage
+    where
+        go :: Pager -> TreeNode -> PageId -> IO Cursor 
+        go pager node pageId = do
+            case node of 
+                LeafNode leaf -> pure $ leafFind leaf key pageId table
+                InternalNode internal -> do
+                    let index = binarySearch (V.map snd (iPointerKeys internal)) key
 
-leafFind :: Table -> LeafData -> Key -> Cursor
-leafFind table leaf key =
+                    let childPageId = 
+                          if index == fromIntegral (iNumKeys internal)
+                          then iRightPointer internal  -- if the index is the far right make it the right pointer
+                          else fst (iPointerKeys internal V.! index)  -- otherwise use the pointer at index i
+
+                    childNode <- readNode <$> readPage pager childPageId
+                    go pager childNode childPageId
+
+-- create cursor to row given a table key and page id
+leafFind :: LeafData -> Key -> PageId -> Table -> Cursor
+leafFind leaf key pageId =
     let
         keyVec = V.map fst $ lCells leaf
         -- the cursor is 1-indexed so we need to add one
         index = binarySearch keyVec key + 1
-    in Cursor (tRootPage table) (fromIntegral index) table
+    in Cursor pageId (fromIntegral index)
 
+-- * utils 
+-- binary search for index containing item or index that should contain item
 binarySearch :: Ord a => V.Vector a -> a -> Int
 binarySearch vec key =
     let len = V.length vec
