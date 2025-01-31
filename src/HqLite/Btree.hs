@@ -1,22 +1,22 @@
 module HqLite.Btree where
 
+import Control.Monad.State
 import Data.Binary (decode, encode)
+import Data.ByteString.Lazy (index)
+import qualified Data.Vector as V
 import HqLite.Btree.Types
 import HqLite.Constants (Row (..))
-import qualified Data.Vector as V
-import HqLite.Table.Types
 import HqLite.Paging.Page
-import Control.Monad.State
 import HqLite.Paging.Types
-import Data.ByteString.Lazy (index)
+import HqLite.Table.Types
 
 -- make better later
 -- this can throw errors
 -- will handle later
 readNode :: Page -> TreeNode
 readNode (Page raw)
-    | index raw 0 == 0x1 =  InternalNode (decode raw)
-    | otherwise =  LeafNode (decode raw)
+    | index raw 0 == 0x1 = InternalNode (decode raw)
+    | otherwise = LeafNode (decode raw)
 
 -- insert and split into a leaf node
 -- cells are evenly split between two new nodes
@@ -27,23 +27,22 @@ leafSplitInsert key row = do
 
     let cells = insertSortedVec (lCells leafData) (\x y -> fst x < fst y) ((,) key row)
 
-    let mid = V.length cells`div` 2
+    let mid = V.length cells `div` 2
     let (first, second) = V.splitAt mid cells
 
-    let newLeafLeft =  leafData { lCells = first, lNumCells = fromIntegral (V.length first), lIsRoot = False }
-    let newLeafRight = leafData { lCells = second, lNumCells = fromIntegral (V.length second), lIsRoot = False }
-
-    -- write the left data into the current node
-    writeLeft <- liftIO $ execStateT (writePage cPageNum (createPage $ encode newLeafLeft)) (tPager cTable)
+    let newLeafRight = leafData{lCells = second, lNumCells = fromIntegral (V.length second), lIsRoot = False}
 
     -- write the right split into a new node
-    let rightPageId = getFreePage writeLeft
-    writeRight <- liftIO $ execStateT (writePage rightPageId (createPage $ encode newLeafRight)) writeLeft
+    let rightPageId = getFreePage $ tPager cTable
+    writeRight <- liftIO $ execStateT (writePage rightPageId (createPage $ encode newLeafRight)) $ tPager cTable
 
-    modify $ \c -> c{cTable = cTable{tPager = writeRight}}
+    let newLeafLeft = leafData{lCells = first, lNumCells = fromIntegral (V.length first), lIsRoot = False, lNextLeaf = rightPageId}
+    -- write the left data into the current node
+    writeLeft <- liftIO $ execStateT (writePage cPageNum (createPage $ encode newLeafLeft)) writeRight
+
+    modify $ \c -> c{cTable = cTable{tPager = writeLeft}}
 
     when (lIsRoot leafData) $ splitRoot rightPageId newLeafLeft
-
 
 splitRoot :: PageId -> LeafData -> CursorM ()
 splitRoot rightPointer leftLeaf = do
@@ -82,11 +81,11 @@ getLeafMax LeafData{..} = fst $ V.last lCells
 insertSortedVec :: V.Vector a -> (a -> a -> Bool) -> a -> V.Vector a
 insertSortedVec vec comp x =
     go V.empty vec
-    where
-        go acc xs
-            | V.null xs = acc V.++ V.singleton x  -- Base case: insert x at the end
-            | comp x (V.head xs) = acc V.++ V.singleton x V.++ xs  -- Insert x here
-            | otherwise = go (acc V.++ V.singleton (V.head xs)) (V.tail xs)
+  where
+    go acc xs
+        | V.null xs = acc V.++ V.singleton x -- Base case: insert x at the end
+        | comp x (V.head xs) = acc V.++ V.singleton x V.++ xs -- Insert x here
+        | otherwise = go (acc V.++ V.singleton (V.head xs)) (V.tail xs)
 
 -- * Cursor stuff
 newCursorEnd :: Table -> IO Cursor
@@ -134,7 +133,6 @@ insertRow row = do
     if lNumCells leaf >= leafMaxCells
         then leafSplitInsert key row
         else updateLeafWithRow (fromIntegral $ rowId row) row leaf
-
 
 updateLeafWithRow :: Key -> Row -> LeafData -> CursorM ()
 updateLeafWithRow key row LeafData{..} = do

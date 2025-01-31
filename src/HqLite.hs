@@ -3,16 +3,17 @@ module HqLite where
 import Control.Monad.Loops (unfoldrM)
 import Control.Monad.Reader
 import Control.Monad.State
+import qualified Data.Vector as V
+import HqLite.Btree
+import HqLite.Btree.Types
 import HqLite.Commands
 import HqLite.Constants
-import HqLite.Table
-import System.IO
-import HqLite.Table.Types (TableM, Table (tPager, tRootPage))
-import HqLite.Btree.Types
-import HqLite.Btree
-import HqLite.Paging.Page (readPage)
-import Text.Printf (printf)
 import HqLite.Paging
+import HqLite.Paging.Page (readPage)
+import HqLite.Table
+import HqLite.Table.Types (Table (tPager, tRootPage), TableM)
+import System.IO
+import Text.Printf (printf)
 
 printPrompt :: IO ()
 printPrompt = putStr "db> " >> hFlush stdout
@@ -26,27 +27,28 @@ printTree table = do
     let pager = tPager table
     root <- readNode <$> readPage pager (tRootPage table)
     go pager root 0
-    where
-        go :: Pager -> TreeNode -> Int -> IO ()
-        go pager node depth =
-            case node of
-                InternalNode InternalData{..} -> do
-                    printf "%s- internal (size %d)\n" (indent depth) iNumKeys
-                    -- mapM_ (\child -> go child (depth + 1)) children
-                    right <- readNode <$> readPage pager iRightPointer
-                    go pager right (depth + 2)
+  where
+    go :: Pager -> TreeNode -> Int -> IO ()
+    go pager node depth =
+        case node of
+            InternalNode InternalData{..} -> do
+                printf "%s- internal (size %d)\n" (indent depth) iNumKeys
+                -- mapM_ (\child -> go child (depth + 1)) children
+                right <- readNode <$> readPage pager iRightPointer
+                go pager right (depth + 2)
 
-                    mapM_ (\cell -> do
+                mapM_
+                    ( \cell -> do
                         nextNode <- readNode <$> readPage pager (fst cell)
                         go pager nextNode (depth + 2)
-                        ) iPointerKeys
+                    )
+                    iPointerKeys
+            LeafNode LeafData{..} -> do
+                printf "%s- leaf (size %d)\n" (indent depth) lNumCells
+                mapM_ (printf "%s- %d\n" (indent (depth + 2)) . fst) lCells
 
-                LeafNode LeafData{..} -> do
-                    printf "%s- leaf (size %d)\n" (indent depth) lNumCells
-                    mapM_ (printf "%s- %d\n" (indent (depth + 2)) . fst) lCells
-
-        indent :: Int -> String
-        indent n = replicate n ' '
+    indent :: Int -> String
+    indent n = replicate n ' '
 
 -- Command handler
 handleCommand :: SqlCommandType -> TableM ()
@@ -61,28 +63,12 @@ handleCommand cmd =
         Select _ -> do
             table <- get
             let cursor = newCursorStart table
-            selectedRows <- liftIO $ selectFunc cursor
-            liftIO $ printTable selectedRows
+            selectedRows <- liftIO $ tableSelect table
+            liftIO $ printTable (V.toList selectedRows)
 
 printTable :: [Row] -> IO ()
 printTable rows = do
     mapM_ print rows
-
-selectFunc :: Cursor -> IO [Row]
-selectFunc cursor = do
-    let
-        table = cTable cursor
-        cursorStart = newCursorStart table
-    unfoldrM fetchRow cursorStart
-  where
-    fetchRow :: Cursor -> IO (Maybe (Row, Cursor))
-    fetchRow currCursor = do
-        row <- getCurrentRow currCursor
-        case row of
-            Just row' -> do
-                nextCursor <- execStateT next currCursor
-                return (Just (row', nextCursor))
-            Nothing -> pure Nothing
 
 replLoop :: TableM ()
 replLoop = do
@@ -95,7 +81,7 @@ replLoop = do
         Right cmd -> do
             case cmd of
                 MetaCommand Exit -> do
-                     liftIO $ putStrLn "Bye!"
+                    liftIO $ putStrLn "Bye!"
                 MetaCommand Tree -> do
                     table <- get
                     liftIO $ printTree table
@@ -103,7 +89,6 @@ replLoop = do
                 SqlCommand cmd' -> do
                     handleCommand cmd'
                     replLoop
-
 
 -- Initialize and run
 main :: IO ()

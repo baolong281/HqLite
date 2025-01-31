@@ -23,3 +23,4 @@ cabal.project.local~
 .ghc.environment.*
 dist-newstyle/
 tmp
+.DS_Store
