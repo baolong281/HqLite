@@ -13,7 +13,6 @@ import System.IO (openTempFile, stdin)
 import System.IO.Silently (capture_)
 import System.IO.Temp (withTempDirectory)
 import Test.Hspec
-import Text.RawString.QQ (r)
 import Data.List (stripPrefix)
 
 withInput :: FilePath -> String -> IO a -> IO ()
@@ -22,7 +21,7 @@ withInput tempDir input action = do
     hPutStr tempHandle input
     hSeek tempHandle AbsoluteSeek 0 -- Reset file pointer to beginning
     hDuplicateTo tempHandle stdin -- Redirect stdin to our temp file
-    result <- action
+    _ <- action
     hClose tempHandle
     removeFile tempName
 
@@ -135,7 +134,14 @@ spec = do
                 output <- (unlines <$> cleanOutput) . lines <$> runReplWithInput dir cmd table
                 output
                     `shouldBe` unlines
-                        [ "- internal (size 1)"
+                        [ "- internal (size 1) [6]"
+                        , "  - leaf (size 6)"
+                        , "    - 1"
+                        , "    - 2"
+                        , "    - 3"
+                        , "    - 4"
+                        , "    - 5"
+                        , "    - 6"
                         , "  - leaf (size 7)"
                         , "    - 7"
                         , "    - 8"
@@ -144,21 +150,12 @@ spec = do
                         , "    - 11"
                         , "    - 12"
                         , "    - 13"
-                        , "  - leaf (size 6)"
-                        , "    - 1"
-                        , "    - 2"
-                        , "    - 3"
-                        , "    - 4"
-                        , "    - 5"
-                        , "    - 6"
                         , "Bye!"
                         ]
         it "insert with split nodes works" $ do
             withTempDirectory "./" "tmp" $ \dir -> do
                 let dbPath = dir ++ "/test.db"
                 table <- createTable dbPath
-
-                -- Define the list of insert commands
                 let insertCommands =
                         [ "insert 2 a b"
                         , "insert 4 a b"
@@ -173,19 +170,21 @@ spec = do
                         , "insert 22 a b"
                         , "insert 24 a b"
                         , "insert 26 a b"
-                        , "insert 28 a b" -- insert right node
-                        , "insert 1 a b"  -- insert left node
+                        , "insert 28 a b"
+                        , "insert 1 a b"  
                         ]
-
-                -- Define the command to run in the REPL
                 let cmd = unlines $ insertCommands ++ [".tree", ".exit"]
-
-                -- Run the REPL and capture the output
                 output <- (unlines <$> cleanOutput) . lines <$> runReplWithInput dir cmd table
-
-                -- Assert the output matches the expected result
                 output `shouldBe` unlines
-                    [ "- internal (size 1)"
+                    [ "- internal (size 1) [12]"
+                    , "  - leaf (size 7)"
+                    , "    - 1"
+                    , "    - 2"
+                    , "    - 4"
+                    , "    - 6"
+                    , "    - 8"
+                    , "    - 10"
+                    , "    - 12"
                     , "  - leaf (size 8)"
                     , "    - 14"
                     , "    - 16"
@@ -195,14 +194,6 @@ spec = do
                     , "    - 24"
                     , "    - 26"
                     , "    - 28"
-                    , "  - leaf (size 7)"
-                    , "    - 1"
-                    , "    - 2"
-                    , "    - 4"
-                    , "    - 6"
-                    , "    - 8"
-                    , "    - 10"
-                    , "    - 12"
                     , "Bye!"
                     ]
         it "runs select properly" $ do
@@ -249,6 +240,190 @@ spec = do
                         , "(28, aa, bb)"
                         , "Bye!"
                         ]
+        it "splits left leaf nodes with parent node that is internal" $ do
+            withTempDirectory "./" "tmp" $ \dir -> do
+                let dbPath = dir ++ "/test.db"
+                table <- createTable dbPath
+                let insertCommands =
+                        [ "insert 100 a a"
+                        , "insert 102 a b"
+                        , "insert 103 a b"
+                        , "insert 104 a b"
+                        , "insert 105 a b"
+                        , "insert 106 a b"
+                        , "insert 107 a b"
+                        , "insert 108 a b"
+                        , "insert 1 a b"
+                        , "insert 2 a b"
+                        , "insert 3 a b"
+                        , "insert 4 a b"
+                        , "insert 5 a b"
+                        , "insert 6 a b"
+                        , "insert 7 a b"
+                        , "insert 8 a b"
+                        , "insert 9 a b"
+                        , "insert 10 a b"
+                        , "insert 11 a b"
+                        , "insert 12 a b"
+                        , "insert 13 a b"
+                        , "insert 14 a b"
+                        , "insert 15 a b"
+                        , "insert 16 a b"
+                        ]
+                let cmd = unlines $ insertCommands ++ [".tree", ".exit"]
+                output <- (unlines <$> cleanOutput) . lines <$> runReplWithInput dir cmd table
+                output `shouldBe` unlines
+                    [ "- internal (size 2) [6, 100]"
+                    , "  - leaf (size 6)"
+                    , "    - 1"
+                    , "    - 2"
+                    , "    - 3"
+                    , "    - 4"
+                    , "    - 5"
+                    , "    - 6"
+                    , "  - leaf (size 11)"
+                    , "    - 7"
+                    , "    - 8"
+                    , "    - 9"
+                    , "    - 10"
+                    , "    - 11"
+                    , "    - 12"
+                    , "    - 13"
+                    , "    - 14"
+                    , "    - 15"
+                    , "    - 16"
+                    , "    - 100"
+                    , "  - leaf (size 7)"
+                    , "    - 102"
+                    , "    - 103"
+                    , "    - 104"
+                    , "    - 105"
+                    , "    - 106"
+                    , "    - 107"
+                    , "    - 108"
+                    , "Bye!"
+                    ]
+        it "makes a four leaf node tree" $ do
+            withTempDirectory "./" "tmp" $ \dir -> do
+                let dbPath = dir ++ "/test.db"
+                table <- createTable dbPath
+                let insertCommands =
+                        [ "insert 100 a a"
+                        , "insert 102 a b"
+                        , "insert 103 a b"
+                        , "insert 104 a b"
+                        , "insert 105 a b"
+                        , "insert 106 a b"
+                        , "insert 107 a b"
+                        , "insert 108 a b"
+                        , "insert 1 a b"
+                        , "insert 2 a b"
+                        , "insert 3 a b"
+                        , "insert 4 a b"
+                        , "insert 5 a b"
+                        , "insert 6 a b"
+                        , "insert 7 a b"
+                        , "insert 8 a b"
+                        , "insert 9 a b"
+                        , "insert 10 a b"
+                        , "insert 11 a b"
+                        , "insert 12 a b"
+                        , "insert 13 a b"
+                        , "insert 14 a b"
+                        , "insert 15 a b"
+                        , "insert 16 a b"
+                        , "insert 17 a b"
+                        , "insert 18 a b"
+                        ]
+                let cmd = unlines $ insertCommands ++ [".tree", ".exit"]
+                output <- (unlines <$> cleanOutput) . lines <$> runReplWithInput dir cmd table
+                output `shouldBe` unlines
+                    [ "- internal (size 3) [6, 12, 100]"
+                    , "  - leaf (size 6)"
+                    , "    - 1"
+                    , "    - 2"
+                    , "    - 3"
+                    , "    - 4"
+                    , "    - 5"
+                    , "    - 6"
+                    , "  - leaf (size 6)"
+                    , "    - 7"
+                    , "    - 8"
+                    , "    - 9"
+                    , "    - 10"
+                    , "    - 11"
+                    , "    - 12"
+                    , "  - leaf (size 7)"
+                    , "    - 13"
+                    , "    - 14"
+                    , "    - 15"
+                    , "    - 16"
+                    , "    - 17"
+                    , "    - 18"
+                    , "    - 100"
+                    , "  - leaf (size 7)"
+                    , "    - 102"
+                    , "    - 103"
+                    , "    - 104"
+                    , "    - 105"
+                    , "    - 106"
+                    , "    - 107"
+                    , "    - 108"
+                    , "Bye!"
+                    ]
+        it "splits rightmost key with internal node" $ do
+            withTempDirectory "./" "tmp" $ \dir -> do
+                let dbPath = dir ++ "/test.db"
+                table <- createTable dbPath
+                let insertCommands =
+                        [ "insert 100 a a"
+                        , "insert 102 a b"
+                        , "insert 103 a b"
+                        , "insert 104 a b"
+                        , "insert 105 a b"
+                        , "insert 106 a b"
+                        , "insert 107 a b"
+                        , "insert 108 a b"
+                        , "insert 1 a b"
+                        , "insert 2 a b"
+                        , "insert 3 a b"
+                        , "insert 4 a b"
+                        , "insert 5 a b"
+                        , "insert 109 a b"
+                        , "insert 110 a b"
+                        , "insert 112 a b"
+                        , "insert 113 a b"
+                        , "insert 114 a b"
+                        , "insert 115 a b"
+                        ]
+                let cmd = unlines $ insertCommands ++ [".tree", ".exit"]
+                output <- (unlines <$> cleanOutput) . lines <$> runReplWithInput dir cmd table
+                output `shouldBe` unlines
+                    [ "- internal (size 2) [100, 107]"
+                    , "  - leaf (size 6)"
+                    , "    - 1"
+                    , "    - 2"
+                    , "    - 3"
+                    , "    - 4"
+                    , "    - 5"
+                    , "    - 100"
+                    , "  - leaf (size 6)"
+                    , "    - 102"
+                    , "    - 103"
+                    , "    - 104"
+                    , "    - 105"
+                    , "    - 106"
+                    , "    - 107"
+                    , "  - leaf (size 7)"
+                    , "    - 108"
+                    , "    - 109"
+                    , "    - 110"
+                    , "    - 112"
+                    , "    - 113"
+                    , "    - 114"
+                    , "    - 115"
+                    , "Bye!"
+                    ]
 
 -- Function to clean the output
 cleanOutput :: [String] -> [String]

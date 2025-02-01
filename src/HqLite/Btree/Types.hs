@@ -23,10 +23,10 @@ leafMaxCells :: Word32
 leafMaxCells = (fromIntegral pageSize - leafHeaderSize) `div` (4 + fromIntegral rowSize)
 
 data LeafData = LeafData
-    { lNodeType :: Bool
+    { lNodeType :: Bool -- false means it is an internal node
     , lIsRoot :: Bool
     , lParentPointer :: PageId
-    , lNextLeaf :: PageId
+    , lNextLeaf :: PageId -- 0 is considered null
     , lNumCells :: Word32
     , lCells :: V.Vector (Key, Row)
     }
@@ -110,3 +110,6 @@ instance Binary LeafData where
 -- CHANGE LATER!!!!!!!!!!!!!!!!!!!!!
 initializeLeaf :: LeafData
 initializeLeaf = LeafData False True 0 0 0 V.empty
+
+createLeaf :: Bool -> PageId -> PageId -> Word32 -> V.Vector (Key, Row) -> LeafData
+createLeaf = LeafData False

@@ -1,6 +1,5 @@
 module HqLite where
 
-import Control.Monad.Loops (unfoldrM)
 import Control.Monad.Reader
 import Control.Monad.State
 import qualified Data.Vector as V
@@ -14,6 +13,7 @@ import HqLite.Table
 import HqLite.Table.Types (Table (tPager, tRootPage), TableM)
 import System.IO
 import Text.Printf (printf)
+import Data.List (intercalate)
 
 printPrompt :: IO ()
 printPrompt = putStr "db> " >> hFlush stdout
@@ -21,6 +21,9 @@ printPrompt = putStr "db> " >> hFlush stdout
 parseCommand :: String -> Either String Command
 parseCommand ('.' : cmd) = parseMetaCommand cmd
 parseCommand cmd = parseSqlCommand cmd
+
+formatList :: Show a => [a] -> String
+formatList nums = "[" ++ intercalate ", " (map show nums) ++ "]"
 
 printTree :: Table -> IO ()
 printTree table = do
@@ -32,10 +35,8 @@ printTree table = do
     go pager node depth =
         case node of
             InternalNode InternalData{..} -> do
-                printf "%s- internal (size %d)\n" (indent depth) iNumKeys
+                printf "%s- internal (size %d) %s\n" (indent depth) iNumKeys (formatList $ V.toList (V.map snd iPointerKeys))
                 -- mapM_ (\child -> go child (depth + 1)) children
-                right <- readNode <$> readPage pager iRightPointer
-                go pager right (depth + 2)
 
                 mapM_
                     ( \cell -> do
@@ -43,6 +44,10 @@ printTree table = do
                         go pager nextNode (depth + 2)
                     )
                     iPointerKeys
+
+                right <- readNode <$> readPage pager iRightPointer
+                go pager right (depth + 2)
+
             LeafNode LeafData{..} -> do
                 printf "%s- leaf (size %d)\n" (indent depth) lNumCells
                 mapM_ (printf "%s- %d\n" (indent (depth + 2)) . fst) lCells
@@ -62,7 +67,7 @@ handleCommand cmd =
                     liftIO $ putStrLn "Row inserted!"
         Select _ -> do
             table <- get
-            let cursor = newCursorStart table
+            let _ = newCursorStart table
             selectedRows <- liftIO $ tableSelect table
             liftIO $ printTable (V.toList selectedRows)
 

@@ -31,6 +31,7 @@ library
         HqLite.Commands
         HqLite.Btree
           HqLite.Btree.Types
+        HqLite.Utils
     -- other-modules:
     -- other-extensions:
     default-extensions:

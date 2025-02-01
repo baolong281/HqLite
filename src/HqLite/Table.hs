@@ -12,6 +12,7 @@ import HqLite.Paging
 import HqLite.Paging.Page
 import HqLite.Paging.Types (PageId)
 import HqLite.Table.Types
+import HqLite.Utils (binarySearch)
 import System.IO (openFile)
 
 -- create table from filepath
@@ -91,22 +92,3 @@ leafFind leaf key pageId =
         index = binarySearch keyVec key + 1
      in
         Cursor pageId (fromIntegral index)
-
--- * utils
-
--- binary search for index containing item or index that should contain item
-binarySearch :: (Ord a) => V.Vector a -> a -> Int
-binarySearch vec key =
-    let len = V.length vec
-     in go 0 (len - 1)
-  where
-    go low high
-        -- when search fails return the low index, which is where the key should be inserted
-        | low > high = low
-        | otherwise =
-            let mid = (low + high) `div` 2
-                midVal = vec V.! mid
-             in case compare key midVal of
-                    LT -> go low (mid - 1)
-                    GT -> go (mid + 1) high
-                    EQ -> mid

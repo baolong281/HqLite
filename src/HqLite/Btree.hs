@@ -9,6 +9,9 @@ import HqLite.Constants (Row (..))
 import HqLite.Paging.Page
 import HqLite.Paging.Types
 import HqLite.Table.Types
+import HqLite.Utils (binarySearch)
+
+type CellData = V.Vector (Key, Row)
 
 -- make better later
 -- this can throw errors
@@ -20,47 +23,93 @@ readNode (Page raw)
 
 -- insert and split into a leaf node
 -- cells are evenly split between two new nodes
+-- will call splitRoot and splitInternal to split its parent
 leafSplitInsert :: Key -> Row -> CursorM ()
 leafSplitInsert key row = do
-    cursor@Cursor{..} <- get
+    cursor <- get
     leafData <- liftIO $ getLeafNode cursor
+    let oldKey = getLeafMax leafData
 
     let cells = insertSortedVec (lCells leafData) (\x y -> fst x < fst y) ((,) key row)
 
     let mid = V.length cells `div` 2
     let (first, second) = V.splitAt mid cells
 
-    let newLeafRight = leafData{lCells = second, lNumCells = fromIntegral (V.length second), lIsRoot = False}
+    ( if lIsRoot leafData
+            then splitRoot leafData first second
+            else splitInternal oldKey (lParentPointer leafData) first second
+        )
 
-    -- write the right split into a new node
-    let rightPageId = getFreePage $ tPager cTable
-    writeRight <- liftIO $ execStateT (writePage rightPageId (createPage $ encode newLeafRight)) $ tPager cTable
-
-    let newLeafLeft = leafData{lCells = first, lNumCells = fromIntegral (V.length first), lIsRoot = False, lNextLeaf = rightPageId}
-    -- write the left data into the current node
-    writeLeft <- liftIO $ execStateT (writePage cPageNum (createPage $ encode newLeafLeft)) writeRight
-
-    modify $ \c -> c{cTable = cTable{tPager = writeLeft}}
-
-    when (lIsRoot leafData) $ splitRoot rightPageId newLeafLeft
-
-splitRoot :: PageId -> LeafData -> CursorM ()
-splitRoot rightPointer leftLeaf = do
+-- if leaf being split is a root, a new root is created and set to the split leaves parents
+splitRoot :: LeafData -> CellData -> CellData -> CursorM ()
+splitRoot oldLeaf leftData rightData = do
     Cursor{..} <- get
 
-    let leftPage = getFreePage $ tPager cTable
-    let keys = V.fromList [(leftPage, getLeafMax leftLeaf)]
+    let rightPage = getFreePage $ tPager cTable
+    let rightNode = oldLeaf{lCells = rightData, lNumCells = fromIntegral (V.length rightData), lIsRoot = False, lParentPointer = 0, lNextLeaf = 0} -- change these to instead make new leaves, using old data like this is probably bad
+    writeRight <- liftIO $ execStateT (writePage rightPage (createPage $ encode rightNode)) $ tPager cTable
 
-    let newRoot = InternalData True True 0 1 rightPointer keys
+    let leftPage = getFreePage writeRight
+    let leftNode = oldLeaf{lCells = leftData, lNumCells = fromIntegral (V.length leftData), lIsRoot = False, lParentPointer = 0, lNextLeaf = rightPage}
+    writeLeft <- liftIO $ execStateT (writePage leftPage (createPage $ encode leftNode)) writeRight
 
-    -- move the data currently in the root to a new page
-    -- should be the left node of the split
-    writeLeft <- liftIO $ execStateT (writePage leftPage (createPage $ encode leftLeaf)) (tPager cTable)
+    let keys = V.fromList [(leftPage, getLeafMax leftNode)]
+    let newRoot = InternalData True True 0 1 rightPage keys
 
     -- write the root to the cursor position. this should be the root
     writeRoot <- liftIO $ execStateT (writePage cPageNum (createPage $ encode newRoot)) writeLeft
-
     modify $ \c -> c{cTable = cTable{tPager = writeRoot}}
+
+-- handle splits for children of internal nodes
+splitInternal :: Key -> PageId -> CellData -> CellData -> CursorM ()
+splitInternal oldKey parentPointer leftData rightData = do
+    cursor@Cursor{..} <- get
+    let rightKey = fst $ V.last rightData
+    let leftKey = fst $ V.last leftData
+    parent <- liftIO $ readNode <$> readPage (tPager cTable) parentPointer
+
+    case parent of
+        LeafNode _ -> error "Expected internal node"
+        InternalNode parentNode -> do
+            let rightPointer = getFreePage $ tPager cTable
+
+            -- if this is the far right key, then the key from the old node shuold not be in the keypair list
+            -- i hope 🙏
+            let isRightKey = not (V.elem oldKey (V.map snd (iPointerKeys parentNode)))
+
+            when (iNumKeys parentNode >= internalMaxKeys) (error "MAX KEYS CANNOT SPLIT HAVE NOT ADDED YET")
+
+            -- we need to update the keypair list by first removing the old key of the old leaf
+            let filteredKeys = V.filter (\pair -> snd pair /= oldKey) (iPointerKeys parentNode)
+            let leftKeyPos = binarySearch (V.map snd filteredKeys) leftKey
+
+            -- then we insert the new left key
+            let keysWithNewLeft = insertAt leftKeyPos (cPageNum, leftKey) filteredKeys
+            let rightKeyPos = binarySearch (V.map snd keysWithNewLeft) rightKey
+
+            -- if the right node is the right most key we need to change that in the parent
+            let newParent =
+                    if isRightKey
+                        then parentNode{iPointerKeys = keysWithNewLeft, iRightPointer = rightPointer, iNumKeys=fromIntegral (V.length keysWithNewLeft)}
+                        else parentNode{iPointerKeys = insertAt rightKeyPos (rightPointer, rightKey) keysWithNewLeft, iNumKeys=fromIntegral (V.length keysWithNewLeft) + 1}
+
+            currLeft <- liftIO $ getLeafNode cursor
+
+            -- if its rightmost key next leaf is null, otherwise its the right key of the left node
+            let rightNode =
+                    if isRightKey
+                    then createLeaf False parentPointer 0 (fromIntegral $ V.length rightData) rightData
+                    else createLeaf False parentPointer (lNextLeaf currLeft) (fromIntegral $ V.length rightData) rightData
+
+            let leftNode = createLeaf False parentPointer rightPointer (fromIntegral $ V.length leftData) leftData
+
+            writeParent <- liftIO $ execStateT (writePage parentPointer (createPage $ encode newParent)) (tPager cTable)
+            writeRight <- liftIO $ execStateT (writePage rightPointer (createPage $ encode rightNode)) writeParent
+
+            -- left is written at current cursor page
+            writeLeft <- liftIO $ execStateT (writePage cPageNum (createPage $ encode leftNode)) writeRight
+
+            modify $ \c -> c{cTable = cTable{tPager = writeLeft}}
 
 -- * General utils
 insertAt :: Int -> a -> V.Vector a -> V.Vector a
@@ -72,6 +121,13 @@ getLeafNode Cursor{..} = do
     case maybeNode of
         LeafNode leaf -> pure leaf
         _ -> error "Expected leaf node"
+
+getInternalNode :: Cursor -> IO InternalData
+getInternalNode Cursor{..} = do
+    maybeNode <- readNode <$> readPage (tPager cTable) (fromIntegral cPageNum)
+    case maybeNode of
+        InternalNode internal -> pure internal
+        _ -> error "Expected internal node"
 
 -- get largest key in leafnode
 getLeafMax :: LeafData -> Key
