@@ -84,5 +84,7 @@ test-suite hqlite-test
         , mtl
         , directory
         , raw-strings-qq
+        , QuickCheck
+        , text
     build-tool-depends:
       hspec-discover:hspec-discover

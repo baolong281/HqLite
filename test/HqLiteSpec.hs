@@ -1,5 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Replace case with fromMaybe" #-}
+{-# HLINT ignore "Redundant lambda" #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module HqLiteSpec where
 
@@ -12,8 +18,40 @@ import System.Directory (removeFile)
 import System.IO (openTempFile, stdin)
 import System.IO.Silently (capture_)
 import System.IO.Temp (withTempDirectory)
+import Test.QuickCheck hiding (output)
 import Test.Hspec
-import Data.List (stripPrefix)
+import Data.List (stripPrefix, nubBy, isInfixOf)
+import qualified Data.Text as T
+import GHC.Generics
+import Test.QuickCheck.Monadic
+import Data.Char (isSpace, isDigit)
+
+data TestRow = TestRow {
+    id :: Int,
+    username :: T.Text,
+    email :: T.Text
+} deriving (Show, Eq, Generic)
+
+instance Arbitrary TestRow where
+    arbitrary = do
+        id <- choose (1, 1000)  -- More realistic ID range
+        usernameLen <- choose (3, 10)
+        username <- T.pack <$> vectorOf usernameLen (elements $ ['a'..'z'])
+        TestRow id username <$> genEmail
+
+    shrink = shrinkNothing
+
+genEmail :: Gen T.Text
+genEmail = do
+    localLen <- choose (3, 8)
+    domainLen <- choose (3, 8)
+    local <- T.pack <$> vectorOf localLen (elements $ ['a'..'z'])
+    domain <- T.pack <$> vectorOf domainLen (elements ['a'..'z'])
+    return $ local <> "@" <> domain <> ".com"
+
+rowToCommand :: TestRow -> String
+rowToCommand (TestRow id username email) =
+    "insert " ++ show id ++ " " ++ T.unpack username ++ " " ++ T.unpack email
 
 withInput :: FilePath -> String -> IO a -> IO ()
 withInput tempDir input action = do
@@ -30,9 +68,29 @@ runReplWithInput :: FilePath -> String -> Table -> IO String
 runReplWithInput tempDir input table = capture_ $ do
     withInput tempDir input $ execStateT replLoop table
 
+withTestTable :: (Table -> IO a) -> IO a
+withTestTable action = withTempDirectory "./" "tmp" $ \dir -> do
+    let dbPath = dir ++ "/test.db"
+    table <- createTable dbPath
+    action table
+
 -- Test suite
 spec :: Spec
 spec = do
+    describe "B-Tree Properties"$ do
+        it "maintains sorted order and uniqueness" $ property $
+            \(rows :: NonEmptyList TestRow) -> monadicIO $ do
+                let uniqueRows = nubBy (\a b -> HqLiteSpec.id a == HqLiteSpec.id b) (getNonEmpty rows)
+                    commands = unlines $ map rowToCommand uniqueRows ++ [".tree", ".exit"]
+
+                output <- run $ withTestTable $ \table ->
+                    withTempDirectory "./" "tmp" $ \dir ->
+                        runReplWithInput dir commands table
+                monitor (counterexample $ "Output:\n" ++ output)
+                let filteredOutput = unlines . cleanOutput $ lines output
+
+                assert (isSorted (treeToList $ init (tail (lines filteredOutput))))
+
     describe "REPL" $ do
         it "handles meta commands" $ do
             withTempDirectory "./" "tmp" $ \dir -> do
@@ -171,7 +229,7 @@ spec = do
                         , "insert 24 a b"
                         , "insert 26 a b"
                         , "insert 28 a b"
-                        , "insert 1 a b"  
+                        , "insert 1 a b"
                         ]
                 let cmd = unlines $ insertCommands ++ [".tree", ".exit"]
                 output <- (unlines <$> cleanOutput) . lines <$> runReplWithInput dir cmd table
@@ -437,3 +495,18 @@ cleanOutput output =
             Nothing -> line
     in
         map removePrefix filteredOutput
+
+-- convert tree output to numeric list
+treeToList :: [String] -> [Int]
+treeToList tree =
+    let
+        isHeader = \str -> isDigit $ last str
+        processedOutput = map (filter (not . isSpace)) tree
+        filteredOutput = filter isHeader processedOutput
+    in
+        map (read . tail) filteredOutput
+
+isSorted :: Ord a => [a] -> Bool
+isSorted [] = True
+isSorted [x] = True
+isSorted (x : xs) = x <= head xs && isSorted xs
