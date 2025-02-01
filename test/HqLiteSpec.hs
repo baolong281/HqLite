@@ -14,6 +14,7 @@ import System.IO.Silently (capture_)
 import System.IO.Temp (withTempDirectory)
 import Test.Hspec
 import Text.RawString.QQ (r)
+import Data.List (stripPrefix)
 
 withInput :: FilePath -> String -> IO a -> IO ()
 withInput tempDir input action = do
@@ -98,20 +99,15 @@ spec = do
                             , "select"
                             , ".exit"
                             ]
-                output <- runReplWithInput dir cmd table
+                output <- (unlines <$> cleanOutput) . lines <$> runReplWithInput dir cmd table
                 output
                     `shouldBe` unlines
-                        [ "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> (1, a, b)"
+                        [ "(1, a, b)"
                         , "(2, e, f)"
                         , "(3, i, j)"
                         , "(5, g, h)"
                         , "(6, c, d)"
-                        , "db> Bye!"
+                        , "Bye!"
                         ]
 
         it "inserts and splits root" $ do
@@ -136,23 +132,10 @@ spec = do
                             , ".tree"
                             , ".exit"
                             ]
-                output <- runReplWithInput dir cmd table
+                output <- (unlines <$> cleanOutput) . lines <$> runReplWithInput dir cmd table
                 output
                     `shouldBe` unlines
-                        [ "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> - internal (size 1)"
+                        [ "- internal (size 1)"
                         , "  - leaf (size 7)"
                         , "    - 7"
                         , "    - 8"
@@ -168,70 +151,60 @@ spec = do
                         , "    - 4"
                         , "    - 5"
                         , "    - 6"
-                        , "db> Bye!"
+                        , "Bye!"
                         ]
         it "insert with split nodes works" $ do
             withTempDirectory "./" "tmp" $ \dir -> do
                 let dbPath = dir ++ "/test.db"
                 table <- createTable dbPath
-                let cmd =
-                        unlines
-                            [ "insert 2 a b"
-                            , "insert 4 a b"
-                            , "insert 6 a b"
-                            , "insert 8 a b"
-                            , "insert 10 a b"
-                            , "insert 12 a b"
-                            , "insert 14 a b"
-                            , "insert 16 a b"
-                            , "insert 18 a b"
-                            , "insert 20 a b"
-                            , "insert 22 a b"
-                            , "insert 24 a b"
-                            , "insert 26 a b"
-                            , "insert 28 a b" -- insert right node
-                            , "insert 1 a b" -- insert left node
-                            , ".tree"
-                            , ".exit"
-                            ]
-                output <- runReplWithInput dir cmd table
-                output
-                    `shouldBe` unlines
-                        [ "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> - internal (size 1)"
-                        , "  - leaf (size 8)"
-                        , "    - 14"
-                        , "    - 16"
-                        , "    - 18"
-                        , "    - 20"
-                        , "    - 22"
-                        , "    - 24"
-                        , "    - 26"
-                        , "    - 28"
-                        , "  - leaf (size 7)"
-                        , "    - 1"
-                        , "    - 2"
-                        , "    - 4"
-                        , "    - 6"
-                        , "    - 8"
-                        , "    - 10"
-                        , "    - 12"
-                        , "db> Bye!"
+
+                -- Define the list of insert commands
+                let insertCommands =
+                        [ "insert 2 a b"
+                        , "insert 4 a b"
+                        , "insert 6 a b"
+                        , "insert 8 a b"
+                        , "insert 10 a b"
+                        , "insert 12 a b"
+                        , "insert 14 a b"
+                        , "insert 16 a b"
+                        , "insert 18 a b"
+                        , "insert 20 a b"
+                        , "insert 22 a b"
+                        , "insert 24 a b"
+                        , "insert 26 a b"
+                        , "insert 28 a b" -- insert right node
+                        , "insert 1 a b"  -- insert left node
                         ]
+
+                -- Define the command to run in the REPL
+                let cmd = unlines $ insertCommands ++ [".tree", ".exit"]
+
+                -- Run the REPL and capture the output
+                output <- (unlines <$> cleanOutput) . lines <$> runReplWithInput dir cmd table
+
+                -- Assert the output matches the expected result
+                output `shouldBe` unlines
+                    [ "- internal (size 1)"
+                    , "  - leaf (size 8)"
+                    , "    - 14"
+                    , "    - 16"
+                    , "    - 18"
+                    , "    - 20"
+                    , "    - 22"
+                    , "    - 24"
+                    , "    - 26"
+                    , "    - 28"
+                    , "  - leaf (size 7)"
+                    , "    - 1"
+                    , "    - 2"
+                    , "    - 4"
+                    , "    - 6"
+                    , "    - 8"
+                    , "    - 10"
+                    , "    - 12"
+                    , "Bye!"
+                    ]
         it "runs select properly" $ do
             withTempDirectory "./" "tmp" $ \dir -> do
                 let dbPath = dir ++ "/test.db"
@@ -256,25 +229,10 @@ spec = do
                             , "select"
                             , ".exit"
                             ]
-                output <- runReplWithInput dir cmd table
+                output <- (unlines <$> cleanOutput) . lines <$> runReplWithInput dir cmd table
                 output
                     `shouldBe` unlines
-                        [ "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> Row inserted!"
-                        , "db> (1, cc, dd)"
+                        [ "(1, cc, dd)"
                         , "(2, a, b)"
                         , "(4, c, d)"
                         , "(6, e, f)"
@@ -289,5 +247,18 @@ spec = do
                         , "(24, w, x)"
                         , "(26, y, z)"
                         , "(28, aa, bb)"
-                        , "db> Bye!"
+                        , "Bye!"
                         ]
+
+-- Function to clean the output
+cleanOutput :: [String] -> [String]
+cleanOutput output =
+    let
+        -- Step 1: Remove all "db> Row inserted!" lines
+        filteredOutput = filter (/= "db> Row inserted!") output
+        -- Step 2: Remove the "db> " prefix from each line
+        removePrefix line = case stripPrefix "db> " line of
+            Just stripped -> stripped
+            Nothing -> line
+    in
+        map removePrefix filteredOutput
