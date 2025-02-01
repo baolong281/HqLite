@@ -20,7 +20,7 @@ import System.IO.Silently (capture_)
 import System.IO.Temp (withTempDirectory)
 import Test.QuickCheck hiding (output)
 import Test.Hspec
-import Data.List (stripPrefix, nubBy, isInfixOf)
+import Data.List (stripPrefix, nubBy)
 import qualified Data.Text as T
 import GHC.Generics
 import Test.QuickCheck.Monadic
@@ -34,12 +34,15 @@ data TestRow = TestRow {
 
 instance Arbitrary TestRow where
     arbitrary = do
-        id <- choose (1, 1000)  -- More realistic ID range
+        id <- choose (1, 500000)  -- More realistic ID range
         usernameLen <- choose (3, 10)
         username <- T.pack <$> vectorOf usernameLen (elements $ ['a'..'z'])
         TestRow id username <$> genEmail
 
     shrink = shrinkNothing
+
+generateNrows :: Int -> Gen [TestRow]
+generateNrows n = replicateM n arbitrary
 
 genEmail :: Gen T.Text
 genEmail = do
@@ -90,7 +93,6 @@ spec = do
                 let filteredOutput = unlines . cleanOutput $ lines output
 
                 assert (isSorted (treeToList $ init (tail (lines filteredOutput))))
-
     describe "REPL" $ do
         it "handles meta commands" $ do
             withTempDirectory "./" "tmp" $ \dir -> do
@@ -482,6 +484,23 @@ spec = do
                     , "    - 115"
                     , "Bye!"
                     ]
+        it "inserts 1000 rows" $ do
+            rows <- generate (generateNrows 1000)
+            withTempDirectory "./" "tmp" $ \dir -> do
+                let dbPath = dir ++ "/test.db"
+                table <- createTable dbPath
+
+                let insertCommands = map rowToCommand rows
+                let cmd = unlines $ insertCommands ++ [".tree", ".exit"]
+
+                output <- runReplWithInput dir cmd table
+
+                let cleanedOutput = unlines . cleanOutput $ lines output
+
+                putStrLn cleanedOutput
+
+                let treeLines = init (tail (lines cleanedOutput))
+                isSorted (treeToList treeLines) `shouldBe` True
 
 -- Function to clean the output
 cleanOutput :: [String] -> [String]
@@ -508,5 +527,5 @@ treeToList tree =
 
 isSorted :: Ord a => [a] -> Bool
 isSorted [] = True
-isSorted [x] = True
+isSorted [_] = True
 isSorted (x : xs) = x <= head xs && isSorted xs
